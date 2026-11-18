@@ -18,6 +18,7 @@ struct GameController: RouteCollection {
     func index(req: Request) async throws -> [GameDTO] {
         let players = try positiveInt("players", in: req)
         let maxDuration = try positiveInt("maxDuration", in: req)
+        let available = try availabilityFilter(in: req)
 
         let query = Game.query(on: req.db).with(\.$loans)
 
@@ -32,7 +33,11 @@ struct GameController: RouteCollection {
             query.filter(\.$durationMinutes <= maxDuration)
         }
 
-        return try await query.all().map { $0.toDTO() }
+        var games = try await query.all()
+        if let available {
+            games = games.filter { $0.isAvailable == available }
+        }
+        return games.map { $0.toDTO() }
     }
 
     @Sendable
@@ -75,6 +80,20 @@ struct GameController: RouteCollection {
             throw Abort(.badRequest, reason: "\(name) must be a positive integer")
         }
         return value
+    }
+    
+    private func availabilityFilter(in req: Request) throws -> Bool? {
+        guard let raw = req.query[String.self, at: "available"] else {
+            return nil
+        }
+        switch raw {
+        case "true":
+            return true
+        case "false":
+            return false
+        default:
+            throw Abort(.badRequest, reason: "available must be true or false")
+        }
     }
     
     @Sendable

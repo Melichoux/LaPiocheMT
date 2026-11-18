@@ -296,4 +296,70 @@ final class GameTests: XCTestCase {
             }
         }
     }
+    
+// Tests on GET /games?available
+    func testFilterAvailableAndUnavailableGames() async throws {
+        try await withApp { app in
+            let borrowed = try await createGame(app, title: "Catan")
+            _ = try await createGame(app, title: "Dixit")
+            let member = try await createMember(app)
+            _ = try await createLoan(app, gameID: try XCTUnwrap(borrowed.id), memberID: try XCTUnwrap(member.id))
+
+            let available = try await searchTitles(app, "games?available=true")
+            let unavailable = try await searchTitles(app, "games?available=false")
+            XCTAssertEqual(available, ["Dixit"])
+            XCTAssertEqual(unavailable, ["Catan"])
+        }
+    }
+
+    func testReturnedGameCountsAsAvailable() async throws {
+        try await withApp { app in
+            let game = try await createGame(app, title: "Catan")
+            let member = try await createMember(app)
+            let loan = try await createLoan(app, gameID: try XCTUnwrap(game.id), memberID: try XCTUnwrap(member.id))
+            let loanID = try XCTUnwrap(loan.id)
+
+            try await app.test(.POST, "loans/\(loanID)/return", afterResponse: { _ async throws in })
+
+            let available = try await searchTitles(app, "games?available=true")
+            XCTAssertEqual(available, ["Catan"])
+        }
+    }
+
+    func testAvailabilityFilterCombinesWithSearchFilters() async throws {
+        try await withApp { app in
+            _ = try await createGame(app, title: "Catan", minPlayers: 3, maxPlayers: 4, durationMinutes: 60)
+            let dixit = try await createGame(app, title: "Dixit", minPlayers: 3, maxPlayers: 8, durationMinutes: 30)
+            _ = try await createGame(app, title: "Uno", minPlayers: 2, maxPlayers: 10, durationMinutes: 20)
+            let member = try await createMember(app)
+            _ = try await createLoan(app, gameID: try XCTUnwrap(dixit.id), memberID: try XCTUnwrap(member.id))
+
+            let available = try await searchTitles(app, "games?players=6&available=true")
+            let unavailable = try await searchTitles(app, "games?players=6&available=false")
+            XCTAssertEqual(available, ["Uno"])
+            XCTAssertEqual(unavailable, ["Dixit"])
+        }
+    }
+
+    func testWithoutAvailabilityFilterReturnsAllGames() async throws {
+        try await withApp { app in
+            let borrowed = try await createGame(app, title: "Catan")
+            _ = try await createGame(app, title: "Dixit")
+            let member = try await createMember(app)
+            _ = try await createLoan(app, gameID: try XCTUnwrap(borrowed.id), memberID: try XCTUnwrap(member.id))
+
+            let titles = try await searchTitles(app, "games")
+            XCTAssertEqual(titles, ["Catan", "Dixit"])
+        }
+    }
+
+    func testInvalidAvailabilityReturnsBadRequest() async throws {
+        try await withApp { app in
+            for value in ["yes", "1", "TRUE", ""] {
+                try await app.test(.GET, "games?available=\(value)", afterResponse: { res async throws in
+                    XCTAssertEqual(res.status, .badRequest, value)
+                })
+            }
+        }
+    }
 }
