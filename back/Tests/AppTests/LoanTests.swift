@@ -179,4 +179,62 @@ final class LoanTests: XCTestCase {
             })
         }
     }
+    
+// Tests on GET /loans/overdue
+    func testOverdueLoanIsListed() async throws {
+        try await withApp { app in
+            let game = try await createGame(app)
+            let member = try await createMember(app)
+            let gameID = try XCTUnwrap(game.id)
+            let borrowedAt = Date().addingTimeInterval(-20 * 86400)
+            let dueAt = Date().addingTimeInterval(-6 * 86400)
+            try await insertLoan(app, gameID: gameID, memberID: try XCTUnwrap(member.id),
+                                 borrowedAt: borrowedAt, dueAt: dueAt)
+
+            try await app.test(.GET, "loans/overdue", afterResponse: { res async throws in
+                XCTAssertEqual(res.status, .ok)
+                let loans = try res.content.decode([LoanDTO].self)
+                XCTAssertEqual(loans.count, 1)
+                XCTAssertEqual(loans.first?.gameID, gameID)
+            })
+        }
+    }
+
+    func testLoanNotYetDueIsNotListed() async throws {
+        try await withApp { app in
+            let game = try await createGame(app)
+            let member = try await createMember(app)
+            _ = try await createLoan(app, gameID: try XCTUnwrap(game.id), memberID: try XCTUnwrap(member.id))
+
+            try await app.test(.GET, "loans/overdue", afterResponse: { res async throws in
+                XCTAssertEqual(res.status, .ok)
+                XCTAssertTrue(try res.content.decode([LoanDTO].self).isEmpty)
+            })
+        }
+    }
+
+    func testReturnedLateLoanIsNotListed() async throws {
+        try await withApp { app in
+            let game = try await createGame(app)
+            let member = try await createMember(app)
+            let borrowedAt = Date().addingTimeInterval(-20 * 86400)
+            let dueAt = Date().addingTimeInterval(-6 * 86400)
+            try await insertLoan(app, gameID: try XCTUnwrap(game.id), memberID: try XCTUnwrap(member.id),
+                                 borrowedAt: borrowedAt, dueAt: dueAt, returnedAt: Date())
+
+            try await app.test(.GET, "loans/overdue", afterResponse: { res async throws in
+                XCTAssertEqual(res.status, .ok)
+                XCTAssertTrue(try res.content.decode([LoanDTO].self).isEmpty)
+            })
+        }
+    }
+
+    func testNoLoansReturnsEmptyOverdueList() async throws {
+        try await withApp { app in
+            try await app.test(.GET, "loans/overdue", afterResponse: { res async throws in
+                XCTAssertEqual(res.status, .ok)
+                XCTAssertTrue(try res.content.decode([LoanDTO].self).isEmpty)
+            })
+        }
+    }
 }
