@@ -16,10 +16,23 @@ struct GameController: RouteCollection {
 
     @Sendable
     func index(req: Request) async throws -> [GameDTO] {
-        let games = try await Game.query(on: req.db)
-            .with(\.$loans)
-            .all()
-        return games.map { $0.toDTO() }
+        let players = try positiveInt("players", in: req)
+        let maxDuration = try positiveInt("maxDuration", in: req)
+
+        let query = Game.query(on: req.db).with(\.$loans)
+
+        if let q = req.query[String.self, at: "q"] {
+            query.filter(\.$title ~~ q)
+        }
+        if let players {
+            query.filter(\.$minPlayers <= players)
+            query.filter(\.$maxPlayers >= players)
+        }
+        if let maxDuration {
+            query.filter(\.$durationMinutes <= maxDuration)
+        }
+
+        return try await query.all().map { $0.toDTO() }
     }
 
     @Sendable
@@ -52,6 +65,16 @@ struct GameController: RouteCollection {
             throw Abort(.notFound, reason: "Game not found")
         }
         return game
+    }
+    
+    private func positiveInt(_ name: String, in req: Request) throws -> Int? {
+        guard let raw = req.query[String.self, at: name] else {
+            return nil
+        }
+        guard let value = Int(raw), value > 0 else {
+            throw Abort(.badRequest, reason: "\(name) must be a positive integer")
+        }
+        return value
     }
     
     @Sendable
