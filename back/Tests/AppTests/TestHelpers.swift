@@ -48,6 +48,20 @@ func createMember(
     return try XCTUnwrap(member)
 }
 
+func createLoan(
+    _ app: Application,
+    gameID: UUID,
+    memberID: UUID
+) async throws -> LoanDTO {
+    var loan: LoanDTO?
+    try await app.test(.POST, "loans", beforeRequest: { req in
+        try req.content.encode(CreateLoanDTO(gameID: gameID, memberID: memberID))
+    }, afterResponse: { res async throws in
+        loan = try res.content.decode(LoanDTO.self)
+    })
+    return try XCTUnwrap(loan)
+}
+
 // The API cannot create a loan that is already late, so tests insert it directly.
 func insertLoan(
     _ app: Application,
